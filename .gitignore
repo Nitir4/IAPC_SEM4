@@ -53,3 +53,7 @@ outputs*
 .codex
 .agents
 *.pdf
+
+IAPC_Sem4/__pycache__
+IAPC_Sem4/outputs*
+IAPC_Sem4/
