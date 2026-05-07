@@ -62,3 +62,11 @@ The run writes:
 - `outputs/<TICKER>_model_comparison.png`
 - `outputs/<TICKER>_residuals.png`
 - `outputs/<TICKER>_metric_bars.png`
+
+## Note on IAPC_Sem4 folder
+
+- The `IAPC_Sem4` subfolder has been imported into this repository so it can be used directly.
+- The original embedded Git metadata was moved to `IAPC_Sem4/.git_backup_20260507_210520`.
+- `IAPC_Sem4/outputs*` and `IAPC_Sem4/__pycache__` remain ignored by `.gitignore`.
+
+If you want `IAPC_Sem4` to remain an independent repository instead, restore its `.git` from the backup and convert it to a submodule or separate repo.
