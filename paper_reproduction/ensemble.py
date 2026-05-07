@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from scipy.optimize import minimize
 
 from .arima import rolling_arima_return_forecast
-from .config import ExperimentConfig
+from .config import ExperimentConfig, split_boundaries
 from .data import build_target, random_forest_frame
 from .lstm import fit_predict_lstm
 from .metrics import regression_metrics
@@ -196,7 +196,7 @@ def regime_switching_predict(
 ) -> np.ndarray:
     if regime_map is None:
         regime_map = DEFAULT_REGIME_MAP
-    regimes = market_frame.reindex(test_x.index)["Regime"].fillna("Sideways")
+    regimes = market_frame['Regime'].shift(1).reindex(test_x.index).fillna('Sideways')
     preds = []
     for idx in test_x.index:
         regime = str(regimes.loc[idx])
@@ -313,9 +313,10 @@ def run_ticker(
     ticker: str,
     df: pd.DataFrame,
     config: ExperimentConfig,
-    target_mode: str = "log_return",
+    target_mode: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
 
+    target_mode = config.target_mode if target_mode is None else target_mode
     n_rows = len(df)
 
     # ------------------------------------------------------------
@@ -326,8 +327,7 @@ def run_ticker(
     # 80% -> 100%: Final unseen test evaluation
     # ------------------------------------------------------------
 
-    base_train_end = int(n_rows * 0.6)
-    meta_train_end = int(n_rows * 0.8)
+    base_train_end, meta_train_end = split_boundaries(n_rows, config)
     target = build_target(df, mode=target_mode)
 
     # ============================================================
@@ -389,14 +389,17 @@ def run_ticker(
     # Collect predictions
     # ============================================================
 
-    keep_columns = [*BASE_MODEL_COLUMNS, "NaiveZero"]
+    keep_columns = [*BASE_MODEL_COLUMNS, "NaiveZero", "NaiveLag1"]
     keep_columns = [column for column in keep_columns if column in test_x.columns]
     predictions = test_x[keep_columns].copy()
 
+    predictions['NaiveHistoricalMean'] = target.iloc[:meta_train_end].mean()
+    predictions['EqualBlend'] = predictions[list(BASE_MODELS)].mean(axis=1)
     predictions["ResidualHybrid"] = residual_pred
     predictions["ConfidenceWeight"] = confidence_pred
     predictions["RegimeSwitching"] = regime_pred
     predictions["Actual"] = y_true
+    predictions.attrs['target_mode'] = target_mode
     sanity_check_predictions(predictions, y_true, ticker)
 
     # ============================================================
@@ -409,6 +412,9 @@ def run_ticker(
     model_names = [
         *BASE_MODELS,
         "NaiveZero",
+        "NaiveLag1",
+        "NaiveHistoricalMean",
+        "EqualBlend",
         "ResidualHybrid",
         "ConfidenceWeight",
         "RegimeSwitching",
@@ -422,6 +428,7 @@ def run_ticker(
             **regression_metrics(
                 y_true,
                 predictions[model_name].to_numpy(),
+                benchmark=predictions["NaiveLag1"].to_numpy() if "NaiveLag1" in predictions else None,
             ),
         }
 
@@ -439,9 +446,13 @@ def run_ticker(
     metrics["residual_weight_RandomForest"] = float(residual_weights[0])
     metrics["residual_weight_LSTM"] = float(residual_weights[1])
 
-    metrics["base_train_fraction"] = 0.6
-    metrics["meta_train_fraction"] = 0.2
-    metrics["test_fraction"] = 0.2
+    metrics["base_train_fraction"] = base_train_end / n_rows
+    metrics["meta_train_fraction"] = (meta_train_end-base_train_end) / n_rows
+    metrics["test_fraction"] = (n_rows-meta_train_end) / n_rows
+    metrics['meta_algorithm'] = 'ARMA anchor with OLS/ridge residual correction'
+    metrics['forecast_horizon_observations'] = 1
+    metrics['regime_information_lag_observations'] = 1
+    metrics['unused_legacy_parameters'] = 'meta_min_rmse_improvement,meta_max_weight,trading_selection_min_margin,trading_selection_min_trades,trading_selection_min_exposure'
 
     for key, value in asdict(config).items():
         metrics[key] = value

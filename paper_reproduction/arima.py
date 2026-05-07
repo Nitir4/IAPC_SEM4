@@ -11,7 +11,9 @@ from statsmodels.tsa.stattools import adfuller
 def choose_d(close: pd.Series, max_d: int = 2, alpha: float = 0.05) -> int:
     series = close.dropna().astype(float)
     for d in range(max_d + 1):
-        candidate = series.diff(d).dropna() if d else series
+        candidate = series
+        for _ in range(d):
+            candidate = candidate.diff().dropna()
         if len(candidate) < 20:
             continue
         p_value = adfuller(candidate, autolag="AIC")[1]

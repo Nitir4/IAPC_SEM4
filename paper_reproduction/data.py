@@ -11,15 +11,29 @@ VOLATILE_THRESHOLD = 0.02
 
 
 def load_stock_csv(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path, parse_dates=["Date"])
+    df = pd.read_csv(path)
     missing = {"Date", *PRICE_COLUMNS}.difference(df.columns)
     if missing:
         raise ValueError(f"{path} is missing required columns: {sorted(missing)}")
 
+    df['Date'] = pd.to_datetime(df['Date'], errors='raise')
+    if df['Date'].isna().any() or df['Date'].duplicated().any():
+        raise ValueError('Dates must be present and unique.')
     df = df.sort_values("Date").set_index("Date")
     df[PRICE_COLUMNS] = df[PRICE_COLUMNS].apply(pd.to_numeric, errors="coerce")
-    df[PRICE_COLUMNS] = df[PRICE_COLUMNS].interpolate(method="time")
-    df[PRICE_COLUMNS] = df[PRICE_COLUMNS].ffill().bfill()
+    df[PRICE_COLUMNS] = df[PRICE_COLUMNS].replace([np.inf, -np.inf], np.nan)
+    missing_values = int(df[PRICE_COLUMNS].isna().sum().sum())
+    # Each row can use earlier observations only. Leading missing prices are
+    # discarded instead of being manufactured from a future observation.
+    df[PRICE_COLUMNS] = df[PRICE_COLUMNS].ffill()
+    original_rows = len(df)
+    df = df.dropna(subset=PRICE_COLUMNS)
+    if df.empty:
+        raise ValueError('No complete price observations are available.')
+    if (df[['Close','High','Low','Open']] <= 0).any().any() or (df['Volume'] < 0).any():
+        raise ValueError('Prices must be positive and volume nonnegative.')
+    df.attrs['preprocessing'] = {'missing_values':missing_values,'dropped_leading_rows':original_rows-len(df),
+                                 'imputation':'past-only forward fill'}
     return add_technical_features(df)
 
 
@@ -89,7 +103,9 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
 
     out["Regime"] = detect_regime(out)
 
-    return out.replace([np.inf, -np.inf], np.nan).ffill().bfill()
+    # Keep indicator warm-up NaNs. Consumers exclude invalid training windows;
+    # filling them from later rows would disclose future returns/volatility.
+    return out.replace([np.inf, -np.inf], np.nan)
 
 
 def detect_regime(df: pd.DataFrame) -> pd.Series:

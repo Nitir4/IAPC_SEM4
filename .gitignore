@@ -58,3 +58,7 @@ IAPC_Sem4/__pycache__
 
 *.tex
 
+
+# Fresh results from the corrected causal pipeline
+outputs_causal/
+outputs_persistent_causal/

@@ -34,6 +34,8 @@ def make_target_sequences(
     target_values: np.ndarray,
     look_back: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if look_back < 1 or len(feature_values) <= look_back or len(feature_values) != len(target_values):
+        raise ValueError('Use a positive look-back and aligned features/targets.')
     x_values: list[np.ndarray] = []
     y_values: list[float] = []
     target_positions: list[int] = []
@@ -101,8 +103,13 @@ def fit_predict_lstm(
     scaled_target = target_scaler.transform(target_values).reshape(-1)
 
     x_all, y_all, target_positions = make_target_sequences(scaled_features, scaled_target, look_back)
-    train_mask = (target_positions < train_end) & ~np.isnan(y_all)
+    finite_windows = np.isfinite(x_all).all(axis=(1,2))
+    train_mask = (target_positions < train_end) & np.isfinite(y_all) & finite_windows
     predict_mask = (target_positions >= predict_start) & (target_positions < predict_end)
+    if not train_mask.any():
+        raise ValueError('No finite LSTM training windows remain after indicator warm-up.')
+    if predict_mask.sum() != predict_end-predict_start or not finite_windows[predict_mask].all():
+        raise ValueError('LSTM forecast windows are missing or contain invalid observations.')
 
     model = build_lstm((look_back, len(feature_columns)), units)
     model.fit(

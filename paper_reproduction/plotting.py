@@ -20,9 +20,10 @@ def plot_model_comparison(ticker: str, predictions: pd.DataFrame, output_dir: Pa
     ax.plot(predictions.index, predictions["Actual"], label="Actual", linewidth=1.6)
     for column in model_columns(predictions):
         ax.plot(predictions.index, predictions[column], label=column, linewidth=1.1, alpha=0.85)
-    ax.set_title(f"{ticker} Actual vs Model Predicted Next-Day Log Return")
+    target_mode = predictions.attrs.get('target_mode', 'log_return')
+    ax.set_title(f"{ticker} Actual vs One-Step {target_mode} Forecast")
     ax.set_xlabel("Date")
-    ax.set_ylabel("Log Return")
+    ax.set_ylabel(target_mode.replace('_',' ').title())
     ax.grid(True, alpha=0.25)
     ax.legend(ncol=3)
     fig.tight_layout()
