@@ -88,38 +88,133 @@ def base_predictions(
     return predictions, d
 
 
-def run_ticker(ticker: str, df: pd.DataFrame, config: ExperimentConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_ticker(
+    ticker: str,
+    df: pd.DataFrame,
+    config: ExperimentConfig,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+
     n_rows = len(df)
-    train_end = int(n_rows * config.train_fraction)
-    test_x, test_d = base_predictions(df, train_end, train_end, n_rows, config, f"{ticker} test")
-    y_true = df["Close"].iloc[train_end:n_rows].to_numpy(dtype=float)
 
-    if config.stacking_mode != "paper_like_in_sample":
-        raise ValueError(f"Unknown stacking_mode: {config.stacking_mode}")
+    # ------------------------------------------------------------
+    # DATA SPLITS
+    #
+    # 0%  -> 60% : Base-model training
+    # 60% -> 80% : Meta-learner training (validation region)
+    # 80% -> 100%: Final unseen test evaluation
+    # ------------------------------------------------------------
 
-    print(f"[{ticker}] fitting in-sample meta-learner", flush=True)
-    meta_d = test_d
+    base_train_end = int(n_rows * 0.6)
+    meta_train_end = int(n_rows * 0.8)
+
+    # ============================================================
+    # STEP 1:
+    # Generate validation predictions for meta-learner training
+    # ============================================================
+
+    print(f"[{ticker}] generating meta-training predictions", flush=True)
+
+    meta_x, meta_d = base_predictions(
+        df=df,
+        train_end=base_train_end,
+        predict_start=base_train_end,
+        predict_end=meta_train_end,
+        config=config,
+        label=f"{ticker} meta",
+    )
+
+    meta_y = df["Close"].iloc[base_train_end:meta_train_end].to_numpy(dtype=float)
+
+    # ============================================================
+    # STEP 2:
+    # Train meta-learner ONLY on validation region
+    # ============================================================
+
+    print(f"[{ticker}] fitting leakage-free meta-learner", flush=True)
+
     meta_model = LinearRegression()
-    meta_model.fit(test_x[BASE_MODEL_COLUMNS], y_true)
-    hybrid_pred = meta_model.predict(test_x[BASE_MODEL_COLUMNS])
+
+    meta_model.fit(
+        meta_x[BASE_MODEL_COLUMNS],
+        meta_y,
+    )
+
+    # ============================================================
+    # STEP 3:
+    # Generate FINAL TEST predictions
+    # ============================================================
+
+    print(f"[{ticker}] generating final test predictions", flush=True)
+
+    test_x, test_d = base_predictions(
+        df=df,
+        train_end=meta_train_end,
+        predict_start=meta_train_end,
+        predict_end=n_rows,
+        config=config,
+        label=f"{ticker} test",
+    )
+
+    y_true = df["Close"].iloc[meta_train_end:n_rows].to_numpy(dtype=float)
+
+    # ============================================================
+    # STEP 4:
+    # Hybrid prediction on UNSEEN test data
+    # ============================================================
+
+    hybrid_pred = meta_model.predict(
+        test_x[BASE_MODEL_COLUMNS]
+    )
+
+    # ============================================================
+    # STEP 5:
+    # Collect predictions
+    # ============================================================
 
     predictions = test_x.copy()
+
     predictions["Hybrid"] = hybrid_pred
     predictions["Actual"] = y_true
 
+    # ============================================================
+    # STEP 6:
+    # Metrics
+    # ============================================================
+
     rows: list[dict[str, float | str | int]] = []
-    model_names = [*BASE_MODELS, "NaivePreviousClose", "Hybrid"]
+
+    model_names = [
+        *BASE_MODELS,
+        "NaivePreviousClose",
+        "Hybrid",
+    ]
+
     for model_name in model_names:
+
         row = {
             "Ticker": ticker,
             "Model": model_name,
-            **regression_metrics(y_true, predictions[model_name].to_numpy()),
+            **regression_metrics(
+                y_true,
+                predictions[model_name].to_numpy(),
+            ),
         }
+
         rows.append(row)
 
     metrics = pd.DataFrame(rows)
+
+    # ============================================================
+    # Metadata
+    # ============================================================
+
     metrics["ARIMA_d_meta"] = meta_d
     metrics["ARIMA_d_test"] = test_d
+
+    metrics["base_train_fraction"] = 0.6
+    metrics["meta_train_fraction"] = 0.2
+    metrics["test_fraction"] = 0.2
+
     for key, value in asdict(config).items():
         metrics[key] = value
 
