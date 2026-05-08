@@ -1,303 +1,347 @@
-from __future__ import annotations
+# main.py
 
-import argparse
 import os
-import sys
-from pathlib import Path
+import json
 import numpy as np
-
 import pandas as pd
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# ============================================================
+# Prevent sklearn/joblib thread explosion on Windows
+# ============================================================
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
+os.environ["LOKY_MAX_CPU_COUNT"] = "1"
 
-from IAPC_Sem4.config import DATA_DIR, DEFAULT_TICKERS, FIXED_ENSEMBLE_GROUPS, OUTPUT_DIR, ExperimentConfig
-from IAPC_Sem4.data.loader import available_tickers, load_data
-from IAPC_Sem4.data.preprocess import build_tabular_frame, chronological_split, create_features
-from IAPC_Sem4.models import MODEL_MAP
-from IAPC_Sem4.utils.evaluate import evaluate_fixed_ensembles, fit_stacked_ensemble, rank_models, regression_metrics
-from IAPC_Sem4.utils.plot import write_all_plots
+# ============================================================
+# Reproducibility
+# ============================================================
 
+np.random.seed(42)
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run paper-style stock experiments for IAPC_Sem4.")
-    parser.add_argument("--tickers", nargs="+", default=DEFAULT_TICKERS)
-    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
-    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
-    return parser.parse_args()
+# ============================================================
+# Imports
+# ============================================================
 
+from data.loader import get_data
 
-def build_estimator(model_name: str):
-    return Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("model", MODEL_MAP[model_name]()),
-        ]
+from data.preprocess import (
+    compute_log_returns,
+    add_forward_return,
+    clean_data,
+    split_data,
+    get_features_target,
+    scale_features
+)
+
+from data.indicators import add_indicators
+
+from data.regime import (
+    detect_regime,
+    regime_summary
+)
+
+from models.trainer import (
+    train_all_models,
+    predict_all_models
+)
+
+from signals.signal_generator import (
+    generate_signals
+)
+
+from backtesting.bt_runner import (
+    run_backtest,
+    compute_buy_and_hold
+)
+
+from plots.forecast_plots import (
+    plot_model_forecast
+)
+
+from plots.backtest_plots import (
+    build_equity_dataframe,
+    build_buy_hold_curve,
+    plot_equity_curve,
+    plot_drawdown
+)
+
+# ============================================================
+# OUTPUT DIRECTORIES
+# ============================================================
+
+OUTPUT_DIR = 'outputs'
+
+PLOTS_DIR = os.path.join(
+    OUTPUT_DIR,
+    'plots'
+)
+
+os.makedirs(
+    OUTPUT_DIR,
+    exist_ok=True
+)
+
+os.makedirs(
+    PLOTS_DIR,
+    exist_ok=True
+)
+
+# ============================================================
+# MAIN PIPELINE
+# ============================================================
+
+def main():
+
+    print('\n==============================')
+    print('AI STOCK ANALYSIS PIPELINE')
+    print('==============================')
+
+    # ========================================================
+    # LOAD DATA
+    # ========================================================
+
+    df = get_data()
+
+    print(f'\nRaw Shape: {df.shape}')
+
+    # ========================================================
+    # FEATURE ENGINEERING
+    # ========================================================
+
+    df = compute_log_returns(df)
+
+    df = add_indicators(df)
+
+    df = add_forward_return(df)
+
+    df = clean_data(df)
+
+    df = detect_regime(df)
+
+    regime_summary(df)
+
+    print(f'\nProcessed Shape: {df.shape}')
+
+    # ========================================================
+    # TRAIN / TEST SPLIT
+    # ========================================================
+
+    train_df, test_df = split_data(df)
+
+    X_train, y_train = get_features_target(
+        train_df
     )
 
-
-def run_ticker(
-    ticker: str,
-    data_dir: Path,
-    config: ExperimentConfig,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-
-    # ============================================================
-    # LOAD + FEATURE ENGINEERING
-    # ============================================================
-
-    df = load_data(ticker, data_dir)
-
-    df = create_features(df)
-
-    x, y = build_tabular_frame(df)
-
-    x_train, x_test, y_train, y_test = chronological_split(
-        x,
-        y,
-        config.train_fraction,
+    X_test, y_test = get_features_target(
+        test_df
     )
 
-    # ============================================================
-    # STORAGE
-    # ============================================================
+    # ========================================================
+    # SCALE FEATURES
+    # ========================================================
 
-    predictions = pd.DataFrame(index=x_test.index)
-
-    metrics_rows: list[dict[str, float | str]] = []
-
-    # ============================================================
-    # TRAIN + EVALUATE BASE MODELS
-    # ============================================================
-
-    for model_name in MODEL_MAP:
-
-        print(f"[{ticker}] training {model_name}", flush=True)
-
-        estimator = build_estimator(model_name)
-
-        # --------------------------------------------------------
-        # FIT
-        # --------------------------------------------------------
-
-        estimator.fit(x_train, y_train)
-
-        # --------------------------------------------------------
-        # TRAIN PREDICTIONS
-        # --------------------------------------------------------
-
-        train_pred = estimator.predict(x_train)
-
-        # --------------------------------------------------------
-        # TEST PREDICTIONS
-        # --------------------------------------------------------
-
-        test_pred = estimator.predict(x_test)
-
-        predictions[model_name] = test_pred
-
-        # --------------------------------------------------------
-        # METRICS
-        # --------------------------------------------------------
-
-        train_metrics = regression_metrics(y_train, train_pred)
-
-        test_metrics = regression_metrics(y_test, test_pred)
-
-        # --------------------------------------------------------
-        # GENERALIZATION GAP
-        # --------------------------------------------------------
-
-        generalization_gap = (
-            train_metrics["R2"] - test_metrics["R2"]
+    X_train_scaled, X_test_scaled, scaler = (
+        scale_features(
+            X_train,
+            X_test
         )
-
-        # --------------------------------------------------------
-        # OVERFITTING FLAG
-        # --------------------------------------------------------
-
-        overfit_flag = (
-            "YES"
-            if generalization_gap > 0.15
-            else "NO"
-        )
-
-        # --------------------------------------------------------
-        # PRINT DIAGNOSTICS
-        # --------------------------------------------------------
-
-        print(
-            f"[{ticker}] {model_name} | "
-            f"Train R2={train_metrics['R2']:.4f} | "
-            f"Test R2={test_metrics['R2']:.4f} | "
-            f"Gap={generalization_gap:.4f} | "
-            f"Overfit={overfit_flag}",
-            flush=True,
-        )
-
-        # --------------------------------------------------------
-        # STORE METRICS
-        # --------------------------------------------------------
-
-        metrics_rows.append(
-            {
-                "Ticker": ticker,
-                "Model": model_name,
-
-                # TRAIN METRICS
-                "Train_MAE": train_metrics["MAE"],
-                "Train_MAPE": train_metrics["MAPE"],
-                "Train_RMSE": train_metrics["RMSE"],
-                "Train_R2": train_metrics["R2"],
-
-                # TEST METRICS
-                "Test_MAE": test_metrics["MAE"],
-                "Test_MAPE": test_metrics["MAPE"],
-                "Test_RMSE": test_metrics["RMSE"],
-                "Test_R2": test_metrics["R2"],
-
-                # GENERALIZATION
-                "Generalization_Gap": generalization_gap,
-                "Overfit": overfit_flag,
-            }
-        )
-
-    # ============================================================
-    # NAIVE BASELINE
-    # ============================================================
-
-    naive_pred = (
-        df["Close"]
-        .shift(1)
-        .reindex(x_test.index)
-        .to_numpy(dtype=float)
     )
 
-    predictions["NaivePreviousClose"] = naive_pred
+    print(f'\nX_train shape: {X_train_scaled.shape}')
+    print(f'X_test shape:  {X_test_scaled.shape}')
 
-    predictions["Actual"] = y_test.to_numpy(dtype=float)
+    # ========================================================
+    # TRAIN MODELS
+    # ========================================================
 
-    naive_metrics = regression_metrics(y_test, naive_pred)
-
-    metrics_rows.append(
-        {
-            "Ticker": ticker,
-            "Model": "NaivePreviousClose",
-
-            "Train_MAE": np.nan,
-            "Train_MAPE": np.nan,
-            "Train_RMSE": np.nan,
-            "Train_R2": np.nan,
-
-            "Test_MAE": naive_metrics["MAE"],
-            "Test_MAPE": naive_metrics["MAPE"],
-            "Test_RMSE": naive_metrics["RMSE"],
-            "Test_R2": naive_metrics["R2"],
-
-            "Generalization_Gap": np.nan,
-            "Overfit": "BASELINE",
-        }
+    trained_models = train_all_models(
+        X_train_scaled,
+        y_train
     )
 
-    # ============================================================
-    # SAFE ENSEMBLES (NO LEAKAGE)
-    # ============================================================
+    # ========================================================
+    # PREDICTIONS
+    # ========================================================
 
-    for ensemble_name, model_names in FIXED_ENSEMBLE_GROUPS.items():
-
-        # --------------------------------------------------------
-        # SAFE AVERAGING ENSEMBLE
-        # --------------------------------------------------------
-
-        predictions[ensemble_name] = (
-            predictions[list(model_names)]
-            .mean(axis=1)
-            .to_numpy(dtype=float)
-        )
-
-        ensemble_metrics = regression_metrics(
-            y_test,
-            predictions[ensemble_name].to_numpy(dtype=float),
-        )
-
-        metrics_rows.append(
-            {
-                "Ticker": ticker,
-                "Model": ensemble_name,
-
-                "Train_MAE": np.nan,
-                "Train_MAPE": np.nan,
-                "Train_RMSE": np.nan,
-                "Train_R2": np.nan,
-
-                "Test_MAE": ensemble_metrics["MAE"],
-                "Test_MAPE": ensemble_metrics["MAPE"],
-                "Test_RMSE": ensemble_metrics["RMSE"],
-                "Test_R2": ensemble_metrics["R2"],
-
-                "Generalization_Gap": np.nan,
-                "Overfit": "ENSEMBLE",
-            }
-        )
-
-    # ============================================================
-    # FINAL METRICS DATAFRAME
-    # ============================================================
-
-    metrics_df = rank_models(
-        pd.DataFrame(metrics_rows)
+    predictions_dict = predict_all_models(
+        trained_models,
+        X_test_scaled
     )
 
-    ensembles_df = evaluate_fixed_ensembles(
-        ticker=ticker,
-        predictions=predictions,
-        ensemble_groups=FIXED_ENSEMBLE_GROUPS,
+    predictions_df = pd.DataFrame(
+        predictions_dict,
+        index=X_test.index
     )
 
-    return metrics_df, predictions, ensembles_df
+    predictions_df['Actual'] = y_test.values
 
+    # ========================================================
+    # SAVE PREDICTIONS
+    # ========================================================
 
-def main() -> None:
-    args = parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    selected_tickers = args.tickers if args.tickers != ["ALL"] else available_tickers(args.data_dir)
-    config = ExperimentConfig()
+    predictions_path = os.path.join(
+        OUTPUT_DIR,
+        'predictions.csv'
+    )
 
-    all_metrics: list[pd.DataFrame] = []
-    all_ensembles: list[pd.DataFrame] = []
+    predictions_df.to_csv(
+        predictions_path
+    )
 
-    for ticker in selected_tickers:
-        print(f"\n[{ticker}] loading local CSV and running base models", flush=True)
-        metrics_df, predictions, ensembles_df = run_ticker(ticker, args.data_dir, config)
-        predictions.to_csv(args.output_dir / f"predictions_{ticker}.csv", index_label="Date")
-        write_all_plots(ticker, predictions, args.output_dir)
-        metrics_df.to_csv(args.output_dir / f"metrics_{ticker}.csv", index=False)
-        if not ensembles_df.empty:
-            ensembles_df.to_csv(args.output_dir / f"ensemble_groups_{ticker}.csv", index=False)
+    print(
+        f'\nSaved predictions -> {predictions_path}'
+    )
 
-        all_metrics.append(metrics_df)
-        if not ensembles_df.empty:
-            all_ensembles.append(ensembles_df)
+    # ========================================================
+    # FORECAST PLOTS
+    # ========================================================
 
-        print("[Base models]")
-        print(metrics_df.to_string(index=False))
-        if not ensembles_df.empty:
-            print("\n[Fixed ensemble groups]")
-            print(ensembles_df.to_string(index=False))
+    for model_name in trained_models.keys():
 
-    combined_metrics = pd.concat(all_metrics, ignore_index=True)
-    combined_metrics.to_csv(args.output_dir / "metrics_all_tickers.csv", index=False)
+        plot_model_forecast(
+            dates=X_test.index,
+            actual=y_test.values,
+            predicted=predictions_dict[model_name],
+            model_name=model_name
+        )
 
-    if all_ensembles:
-        combined_ensembles = pd.concat(all_ensembles, ignore_index=True)
-        combined_ensembles.to_csv(args.output_dir / "ensemble_groups_all_tickers.csv", index=False)
+    # ========================================================
+    # SIGNAL GENERATION
+    # ========================================================
 
-    print(f"\nWrote outputs to {args.output_dir}")
+    signals_df = generate_signals(
+        predictions_dict=predictions_dict,
+        df_index=X_test.index,
+        regime_series=test_df['Regime'],
+        volatility_series=test_df['Volatility'],
+        atr_series=test_df['ATR']
+    )
 
+    # ========================================================
+    # SAVE SIGNALS
+    # ========================================================
 
-if __name__ == "__main__":
+    signals_path = os.path.join(
+        OUTPUT_DIR,
+        'signals.csv'
+    )
+
+    signals_df.to_csv(
+        signals_path
+    )
+
+    print(
+        f'Saved signals -> {signals_path}'
+    )
+
+    # ========================================================
+    # BACKTEST
+    # ========================================================
+
+    metrics, cerebro, results = run_backtest(
+        ohlcv_df=test_df,
+        signals_df=signals_df,
+        printlog=False
+    )
+
+    strategy = results[0]
+
+    # ========================================================
+    # BUY & HOLD
+    # ========================================================
+
+    bh_return = compute_buy_and_hold(
+        test_df
+    )
+
+    metrics['BuyHoldReturn %'] = bh_return
+
+    metrics['Alpha %'] = round(
+        metrics['Total Return %'] - bh_return,
+        4
+    )
+
+    # ========================================================
+    # SAVE METRICS
+    # ========================================================
+
+    metrics_path = os.path.join(
+        OUTPUT_DIR,
+        'metrics.json'
+    )
+
+    with open(
+        metrics_path,
+        'w'
+    ) as f:
+
+        json.dump(
+            metrics,
+            f,
+            indent=4
+        )
+
+    print(
+        f'Saved metrics -> {metrics_path}'
+    )
+
+    # ========================================================
+    # EQUITY CURVE
+    # ========================================================
+
+    equity_df = build_equity_dataframe(
+        strategy=strategy,
+        starting_cash=100000
+    )
+
+    benchmark_df = build_buy_hold_curve(
+        close_prices=test_df['Close'],
+        equity_df=equity_df
+    )
+
+    plot_equity_curve(
+        equity_df,
+        benchmark_df
+    )
+
+    plot_drawdown(
+        equity_df
+    )
+
+    # ========================================================
+    # SAVE EQUITY DATA
+    # ========================================================
+
+    equity_path = os.path.join(
+        OUTPUT_DIR,
+        'equity_curve.csv'
+    )
+
+    equity_df.to_csv(
+        equity_path
+    )
+
+    print(
+        f'Saved equity curve -> {equity_path}'
+    )
+
+    # ========================================================
+    # FINAL SUMMARY
+    # ========================================================
+
+    print('\n==============================')
+    print('FINAL RESULTS')
+    print('==============================')
+
+    for k, v in metrics.items():
+
+        print(f'{k:<20}: {v}')
+
+    print('\nPipeline completed successfully.')
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == '__main__':
+
     main()

@@ -21,23 +21,15 @@ def generate_signals(predictions_dict, df_index, regime_series,
 
     # Raw signal from ensemble prediction
     def raw_signal(pred):
-        if regime == 'Bullish':
 
-            if pred > BUY_THRESHOLD:
-                signal = 'BUY'
-            else:
-                signal = 'HOLD'
+        if pred > BUY_THRESHOLD:
+            return 'BUY'
 
-        elif regime == 'Bearish':
-
-            if pred < SELL_THRESHOLD:
-                signal = 'SELL'
-            else:
-                signal = 'HOLD'
+        elif pred < SELL_THRESHOLD:
+            return 'SELL'
 
         else:
-
-            signal = 'HOLD'
+            return 'HOLD'
 
     all_preds_df['raw_signal'] = all_preds_df['ensemble'].apply(raw_signal)
 

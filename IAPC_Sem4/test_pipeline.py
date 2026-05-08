@@ -5,6 +5,8 @@ from data.preprocess import compute_log_returns, add_forward_return, clean_data,
 from data.indicators import add_indicators
 from models.trainer import train_all_models, predict_all_models
 from backtesting.bt_runner import run_backtest, compute_buy_and_hold
+import os
+os.environ["LOKY_MAX_CPU_COUNT"] = "1"
 
 # 1. Load
 df = get_data()
@@ -75,6 +77,21 @@ signals_df = generate_signals(
     regime_series    = df.loc[y_test.index, 'Regime'],
     volatility_series= df.loc[y_test.index, 'Volatility'],
     atr_series       = df.loc[y_test.index, 'ATR']
+)
+
+import os
+
+os.makedirs(
+    'outputs',
+    exist_ok=True
+)
+
+signals_df.to_csv(
+    'outputs/signals.csv'
+)
+
+print(
+    'Saved signals -> outputs/signals.csv'
 )
 
 print(signals_df.head(10))

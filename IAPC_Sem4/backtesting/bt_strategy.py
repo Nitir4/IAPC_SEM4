@@ -40,6 +40,14 @@ class MLSignalStrategy(bt.Strategy):
         # Use 95% of available cash per trade
         self.stake = 0.95
 
+        # ==================================================
+        # Equity tracking
+        # ==================================================
+
+        self.value_history = []
+
+        self.date_history = []
+
     def log(self, txt, dt=None):
 
         if self.params.printlog:
@@ -101,7 +109,6 @@ class MLSignalStrategy(bt.Strategy):
             )
 
         # ==================================================
-        # CRITICAL:
         # Reset pending order tracker
         # ==================================================
 
@@ -110,10 +117,26 @@ class MLSignalStrategy(bt.Strategy):
     def next(self):
 
         # ==================================================
-        # DEBUG LOGGING
+        # Current signal
         # ==================================================
 
         sig = self.signal[0]
+
+        # ==================================================
+        # Store portfolio value history
+        # ==================================================
+
+        self.value_history.append(
+            self.broker.getvalue()
+        )
+
+        self.date_history.append(
+            self.datas[0].datetime.date(0)
+        )
+
+        # ==================================================
+        # DEBUG LOGGING
+        # ==================================================
 
         self.log(
             f'BAR | '

@@ -7,5 +7,5 @@ def get_model():
         max_depth=RF_MAX_DEPTH,
         min_samples_leaf=RF_MIN_SAMPLES_LEAF,
         random_state=42,
-        n_jobs=-1
+        n_jobs=1
     )
