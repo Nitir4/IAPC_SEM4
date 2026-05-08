@@ -1,7 +1,10 @@
 # main.py
 
 import os
+import sys
 import json
+import matplotlib
+matplotlib.use('Agg')
 import numpy as np
 import pandas as pd
 
@@ -99,7 +102,15 @@ def main():
     # LOAD DATA
     # ========================================================
 
-    df = get_data()
+    try:
+        df = get_data()
+    except Exception as e:
+        print(f'\nERROR: Failed to load data: {e}')
+        sys.exit(1)
+
+    if df.empty:
+        print('\nERROR: Loaded dataframe is empty.')
+        sys.exit(1)
 
     print(f'\nRaw Shape: {df.shape}')
 
@@ -237,11 +248,15 @@ def main():
     # BACKTEST
     # ========================================================
 
-    metrics, cerebro, results = run_backtest(
-        ohlcv_df=test_df,
-        signals_df=signals_df,
-        printlog=False
-    )
+    try:
+        metrics, cerebro, results = run_backtest(
+            ohlcv_df=test_df,
+            signals_df=signals_df,
+            printlog=False
+        )
+    except Exception as e:
+        print(f'\nERROR: Backtest failed: {e}')
+        sys.exit(1)
 
     strategy = results[0]
 

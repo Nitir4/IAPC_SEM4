@@ -4,6 +4,17 @@ import pandas as pd
 
 from data.loader import get_data
 
+from data.preprocess import (
+    compute_log_returns,
+    add_forward_return,
+    clean_data,
+    split_data
+)
+
+from data.indicators import add_indicators
+
+from data.regime import detect_regime
+
 from backtesting.bt_runner import (
     run_backtest
 )
@@ -16,10 +27,22 @@ from plots.backtest_plots import (
 )
 
 # ==========================================
-# Load OHLCV
+# Load and preprocess OHLCV
 # ==========================================
 
 ohlcv_df = get_data()
+
+ohlcv_df = compute_log_returns(ohlcv_df)
+ohlcv_df = add_indicators(ohlcv_df)
+ohlcv_df = add_forward_return(ohlcv_df)
+ohlcv_df = clean_data(ohlcv_df)
+ohlcv_df = detect_regime(ohlcv_df)
+
+# ==========================================
+# Split into train/test
+# ==========================================
+
+_, test_df = split_data(ohlcv_df)
 
 # ==========================================
 # Load signals
@@ -32,11 +55,11 @@ signals_df = pd.read_csv(
 )
 
 # ==========================================
-# Run backtest
+# Run backtest (on test data only)
 # ==========================================
 
 metrics, cerebro, results = run_backtest(
-    ohlcv_df,
+    test_df,
     signals_df,
     printlog=False
 )
@@ -53,11 +76,11 @@ equity_df = build_equity_dataframe(
 )
 
 # ==========================================
-# Build benchmark
+# Build benchmark (test period only)
 # ==========================================
 
 benchmark_df = build_buy_hold_curve(
-    close_prices=ohlcv_df['Close'],
+    close_prices=test_df['Close'],
     equity_df=equity_df
 )
 
@@ -74,4 +97,4 @@ plot_drawdown(
     equity_df
 )
 
-print('\nBacktest plots generated.')
+print('\nBacktest plots generated.')

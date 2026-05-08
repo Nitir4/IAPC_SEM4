@@ -219,7 +219,7 @@ def run_backtest(
         _name='timereturn'
     )
 
-    print(f'\nStarting Portfolio: ₹{starting_cash:,.2f}')
+    print(f'\nStarting Portfolio: Rs.{starting_cash:,.2f}')
 
     results = cerebro.run()
 
@@ -227,7 +227,7 @@ def run_backtest(
 
     final_value = cerebro.broker.getvalue()
 
-    print(f'Final Portfolio:    ₹{final_value:,.2f}')
+    print(f'Final Portfolio:    Rs.{final_value:,.2f}')
 
     metrics = extract_metrics(
         strat,
@@ -263,7 +263,7 @@ def compute_buy_and_hold(
 
     print(
         f"\nBuy & Hold Return: {bh_return}%"
-        f" | Final Value: ₹{bh_value:,.2f}"
+        f" | Final Value: Rs.{bh_value:,.2f}"
     )
 
     return bh_return

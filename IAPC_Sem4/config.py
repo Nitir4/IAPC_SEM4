@@ -33,9 +33,9 @@ VOLATILE_THRESHOLD = 0.02     # rolling std above this = Volatile
 RF_MAX_DEPTH = 5
 RF_MIN_SAMPLES_LEAF = 10
 RF_N_ESTIMATORS = 200
-GBM_MAX_DEPTH = 3
-GBM_N_ESTIMATORS = 100
-GBM_LEARNING_RATE = 0.05
+GBM_MAX_DEPTH = 2
+GBM_N_ESTIMATORS = 50
+GBM_LEARNING_RATE = 0.03
 
 # config.py — update these two lines only
 BUY_THRESHOLD  = 0.0003  # predicted return > 0.03% → BUY

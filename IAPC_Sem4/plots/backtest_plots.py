@@ -49,27 +49,39 @@ def build_buy_hold_curve(
     close_prices = close_prices.squeeze()
 
     # ==========================================
-    # Ensure datetime compatibility
+    # Normalize both indices to tz-naive
     # ==========================================
 
-    close_prices.index = pd.to_datetime(
+    close_idx = pd.to_datetime(
         close_prices.index
     )
 
-    strategy_dates = pd.to_datetime(
+    if close_idx.tz is not None:
+        close_idx = close_idx.tz_localize(None)
+
+    close_prices.index = close_idx
+
+    strategy_idx = pd.to_datetime(
         equity_df.index
     )
 
+    if strategy_idx.tz is not None:
+        strategy_idx = strategy_idx.tz_localize(None)
+
+    start_date = strategy_idx.min()
+    end_date = strategy_idx.max()
+
     # ==========================================
-    # Slice benchmark to strategy period
+    # Slice benchmark to EXACT strategy window
     # ==========================================
 
     aligned_close = close_prices[
-        close_prices.index >= strategy_dates.min()
+        (close_prices.index >= start_date)
+        & (close_prices.index <= end_date)
     ]
 
     # ==========================================
-    # Normalize
+    # Normalize from first value in window
     # ==========================================
 
     normalized = (

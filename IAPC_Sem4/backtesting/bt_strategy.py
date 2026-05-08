@@ -135,26 +135,10 @@ class MLSignalStrategy(bt.Strategy):
         )
 
         # ==================================================
-        # DEBUG LOGGING
-        # ==================================================
-
-        self.log(
-            f'BAR | '
-            f'Signal={sig:.0f} | '
-            f'Position={self.position.size} | '
-            f'Cash={self.broker.getcash():.2f} | '
-            f'Close={self.data.close[0]:.2f}'
-        )
-
-        # ==================================================
         # Prevent duplicate orders
         # ==================================================
 
         if self.order:
-
-            self.log(
-                'PENDING ORDER EXISTS -> SKIPPING BAR'
-            )
 
             return
 
@@ -200,13 +184,6 @@ class MLSignalStrategy(bt.Strategy):
                         'Computed size <= 0'
                     )
 
-            else:
-
-                self.log(
-                    'BUY SIGNAL IGNORED | '
-                    'Already in position'
-                )
-
         # ==================================================
         # SELL SIGNAL
         # ==================================================
@@ -226,20 +203,3 @@ class MLSignalStrategy(bt.Strategy):
                 self.order = self.sell(
                     size=self.position.size
                 )
-
-            else:
-
-                self.log(
-                    'SELL SIGNAL IGNORED | '
-                    'No active position'
-                )
-
-        # ==================================================
-        # HOLD SIGNAL
-        # ==================================================
-
-        else:
-
-            self.log(
-                'HOLD SIGNAL | No action'
-            )

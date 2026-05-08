@@ -4,6 +4,17 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 
+# ==========================================
+# Clean filename mapping
+# ==========================================
+
+PLOT_NAME_MAP = {
+    'linearregression': 'linear',
+    'ridge': 'ridge',
+    'randomforest': 'random_forest',
+    'gradientboosting': 'gradient_boost',
+}
+
 
 def plot_model_forecast(
     dates,
@@ -57,11 +68,16 @@ def plot_model_forecast(
     plt.tight_layout()
 
     # ==========================================
-    # Save
+    # Save with clean filename
     # ==========================================
 
+    clean_name = PLOT_NAME_MAP.get(
+        model_name.lower(),
+        model_name.lower()
+    )
+
     filename = (
-        f'{model_name.lower()}_forecast.png'
+        f'{clean_name}_forecast.png'
     )
 
     path = os.path.join(

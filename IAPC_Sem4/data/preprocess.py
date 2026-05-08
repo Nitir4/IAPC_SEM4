@@ -34,8 +34,8 @@ def split_data(df, train_ratio=TRAIN_RATIO):
     split_idx = int(len(df) * train_ratio)
     train = df.iloc[:split_idx].copy()
     test = df.iloc[split_idx:].copy()
-    print(f"Train: {train.index[0].date()} → {train.index[-1].date()} ({len(train)} rows)")
-    print(f"Test:  {test.index[0].date()} → {test.index[-1].date()} ({len(test)} rows)")
+    print(f"Train: {train.index[0].date()} -> {train.index[-1].date()} ({len(train)} rows)")
+    print(f"Test:  {test.index[0].date()} -> {test.index[-1].date()} ({len(test)} rows)")
     return train, test
 
 def get_features_target(df, target_col='target'):
