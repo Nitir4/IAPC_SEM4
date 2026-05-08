@@ -19,17 +19,47 @@ def regression_metrics(y_true, y_pred) -> dict[str, float]:
 
 
 def rank_models(metrics_df: pd.DataFrame) -> pd.DataFrame:
-    return metrics_df.sort_values(["R2", "RMSE", "MAE"], ascending=[False, True, True]).reset_index(drop=True)
 
+    # ------------------------------------------------------------
+    # Base-model metrics dataframe
+    # ------------------------------------------------------------
+
+    if "Test_R2" in metrics_df.columns:
+
+        return metrics_df.sort_values(
+            [
+                "Test_R2",
+                "Test_RMSE",
+                "Test_MAE",
+            ],
+            ascending=[False, True, True],
+        ).reset_index(drop=True)
+
+    # ------------------------------------------------------------
+    # Ensemble metrics dataframe
+    # ------------------------------------------------------------
+
+    return metrics_df.sort_values(
+        [
+            "R2",
+            "RMSE",
+            "MAE",
+        ],
+        ascending=[False, True, True],
+    ).reset_index(drop=True)
 
 def fit_stacked_ensemble(
     predictions: pd.DataFrame,
     model_names: tuple[str, ...],
 ) -> np.ndarray:
-    y_true = predictions["Actual"].to_numpy(dtype=float)
-    meta_model = LinearRegression()
-    meta_model.fit(predictions[list(model_names)], y_true)
-    return meta_model.predict(predictions[list(model_names)])
+
+    ensemble_predictions = (
+        predictions[list(model_names)]
+        .mean(axis=1)
+        .to_numpy(dtype=float)
+    )
+
+    return ensemble_predictions
 
 
 def evaluate_fixed_ensembles(

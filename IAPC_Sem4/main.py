@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+import numpy as np
 
 import pandas as pd
 from sklearn.pipeline import Pipeline
@@ -39,49 +40,224 @@ def build_estimator(model_name: str):
     )
 
 
-def run_ticker(ticker: str, data_dir: Path, config: ExperimentConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def run_ticker(
+    ticker: str,
+    data_dir: Path,
+    config: ExperimentConfig,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+
+    # ============================================================
+    # LOAD + FEATURE ENGINEERING
+    # ============================================================
+
     df = load_data(ticker, data_dir)
+
     df = create_features(df)
+
     x, y = build_tabular_frame(df)
-    x_train, x_test, y_train, y_test = chronological_split(x, y, config.train_fraction)
+
+    x_train, x_test, y_train, y_test = chronological_split(
+        x,
+        y,
+        config.train_fraction,
+    )
+
+    # ============================================================
+    # STORAGE
+    # ============================================================
 
     predictions = pd.DataFrame(index=x_test.index)
+
     metrics_rows: list[dict[str, float | str]] = []
 
-    for model_name in MODEL_MAP:
-        estimator = build_estimator(model_name)
-        estimator.fit(x_train, y_train)
-        y_pred = estimator.predict(x_test)
-        predictions[model_name] = y_pred
-        metrics_rows.append({"Ticker": ticker, "Model": model_name, **regression_metrics(y_test, y_pred)})
+    # ============================================================
+    # TRAIN + EVALUATE BASE MODELS
+    # ============================================================
 
-    naive_pred = df["Close"].shift(1).reindex(x_test.index).to_numpy(dtype=float)
+    for model_name in MODEL_MAP:
+
+        print(f"[{ticker}] training {model_name}", flush=True)
+
+        estimator = build_estimator(model_name)
+
+        # --------------------------------------------------------
+        # FIT
+        # --------------------------------------------------------
+
+        estimator.fit(x_train, y_train)
+
+        # --------------------------------------------------------
+        # TRAIN PREDICTIONS
+        # --------------------------------------------------------
+
+        train_pred = estimator.predict(x_train)
+
+        # --------------------------------------------------------
+        # TEST PREDICTIONS
+        # --------------------------------------------------------
+
+        test_pred = estimator.predict(x_test)
+
+        predictions[model_name] = test_pred
+
+        # --------------------------------------------------------
+        # METRICS
+        # --------------------------------------------------------
+
+        train_metrics = regression_metrics(y_train, train_pred)
+
+        test_metrics = regression_metrics(y_test, test_pred)
+
+        # --------------------------------------------------------
+        # GENERALIZATION GAP
+        # --------------------------------------------------------
+
+        generalization_gap = (
+            train_metrics["R2"] - test_metrics["R2"]
+        )
+
+        # --------------------------------------------------------
+        # OVERFITTING FLAG
+        # --------------------------------------------------------
+
+        overfit_flag = (
+            "YES"
+            if generalization_gap > 0.15
+            else "NO"
+        )
+
+        # --------------------------------------------------------
+        # PRINT DIAGNOSTICS
+        # --------------------------------------------------------
+
+        print(
+            f"[{ticker}] {model_name} | "
+            f"Train R2={train_metrics['R2']:.4f} | "
+            f"Test R2={test_metrics['R2']:.4f} | "
+            f"Gap={generalization_gap:.4f} | "
+            f"Overfit={overfit_flag}",
+            flush=True,
+        )
+
+        # --------------------------------------------------------
+        # STORE METRICS
+        # --------------------------------------------------------
+
+        metrics_rows.append(
+            {
+                "Ticker": ticker,
+                "Model": model_name,
+
+                # TRAIN METRICS
+                "Train_MAE": train_metrics["MAE"],
+                "Train_MAPE": train_metrics["MAPE"],
+                "Train_RMSE": train_metrics["RMSE"],
+                "Train_R2": train_metrics["R2"],
+
+                # TEST METRICS
+                "Test_MAE": test_metrics["MAE"],
+                "Test_MAPE": test_metrics["MAPE"],
+                "Test_RMSE": test_metrics["RMSE"],
+                "Test_R2": test_metrics["R2"],
+
+                # GENERALIZATION
+                "Generalization_Gap": generalization_gap,
+                "Overfit": overfit_flag,
+            }
+        )
+
+    # ============================================================
+    # NAIVE BASELINE
+    # ============================================================
+
+    naive_pred = (
+        df["Close"]
+        .shift(1)
+        .reindex(x_test.index)
+        .to_numpy(dtype=float)
+    )
+
     predictions["NaivePreviousClose"] = naive_pred
+
     predictions["Actual"] = y_test.to_numpy(dtype=float)
+
+    naive_metrics = regression_metrics(y_test, naive_pred)
+
     metrics_rows.append(
         {
             "Ticker": ticker,
             "Model": "NaivePreviousClose",
-            **regression_metrics(y_test, naive_pred),
+
+            "Train_MAE": np.nan,
+            "Train_MAPE": np.nan,
+            "Train_RMSE": np.nan,
+            "Train_R2": np.nan,
+
+            "Test_MAE": naive_metrics["MAE"],
+            "Test_MAPE": naive_metrics["MAPE"],
+            "Test_RMSE": naive_metrics["RMSE"],
+            "Test_R2": naive_metrics["R2"],
+
+            "Generalization_Gap": np.nan,
+            "Overfit": "BASELINE",
         }
     )
 
+    # ============================================================
+    # SAFE ENSEMBLES (NO LEAKAGE)
+    # ============================================================
+
     for ensemble_name, model_names in FIXED_ENSEMBLE_GROUPS.items():
-        predictions[ensemble_name] = fit_stacked_ensemble(predictions, model_names)
+
+        # --------------------------------------------------------
+        # SAFE AVERAGING ENSEMBLE
+        # --------------------------------------------------------
+
+        predictions[ensemble_name] = (
+            predictions[list(model_names)]
+            .mean(axis=1)
+            .to_numpy(dtype=float)
+        )
+
+        ensemble_metrics = regression_metrics(
+            y_test,
+            predictions[ensemble_name].to_numpy(dtype=float),
+        )
+
         metrics_rows.append(
             {
                 "Ticker": ticker,
                 "Model": ensemble_name,
-                **regression_metrics(y_test, predictions[ensemble_name].to_numpy(dtype=float)),
+
+                "Train_MAE": np.nan,
+                "Train_MAPE": np.nan,
+                "Train_RMSE": np.nan,
+                "Train_R2": np.nan,
+
+                "Test_MAE": ensemble_metrics["MAE"],
+                "Test_MAPE": ensemble_metrics["MAPE"],
+                "Test_RMSE": ensemble_metrics["RMSE"],
+                "Test_R2": ensemble_metrics["R2"],
+
+                "Generalization_Gap": np.nan,
+                "Overfit": "ENSEMBLE",
             }
         )
 
-    metrics_df = rank_models(pd.DataFrame(metrics_rows))
+    # ============================================================
+    # FINAL METRICS DATAFRAME
+    # ============================================================
+
+    metrics_df = rank_models(
+        pd.DataFrame(metrics_rows)
+    )
+
     ensembles_df = evaluate_fixed_ensembles(
         ticker=ticker,
         predictions=predictions,
         ensemble_groups=FIXED_ENSEMBLE_GROUPS,
     )
+
     return metrics_df, predictions, ensembles_df
 
 
