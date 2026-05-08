@@ -1,12 +1,11 @@
 from sklearn.ensemble import RandomForestRegressor
+from config import RF_MAX_DEPTH, RF_MIN_SAMPLES_LEAF, RF_N_ESTIMATORS
 
 def get_model():
     return RandomForestRegressor(
-    n_estimators=100,
-    max_depth=5,
-    min_samples_leaf=10,
-    min_samples_split=20,
-    max_features="sqrt",
-    random_state=42,
-    n_jobs=-1,
-)
+        n_estimators=RF_N_ESTIMATORS,
+        max_depth=RF_MAX_DEPTH,
+        min_samples_leaf=RF_MIN_SAMPLES_LEAF,
+        random_state=42,
+        n_jobs=-1
+    )
