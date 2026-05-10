@@ -36,7 +36,7 @@ def prediction_validation_frame(predictions: pd.DataFrame, ticker: str) -> pd.Da
             {
                 "Ticker": ticker,
                 "Model": column,
-                **regression_metrics(actual, pred),
+                **regression_metrics(actual, pred, benchmark=predictions['NaiveLag1'].to_numpy(dtype=float) if 'NaiveLag1' in predictions else None),
                 "PredictionMean": float(np.mean(pred)),
                 "PredictionStd": float(np.std(pred)),
                 "ActualMean": float(np.mean(actual)),

@@ -14,7 +14,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-from paper_reproduction.config import ExperimentConfig
+from paper_reproduction.config import ExperimentConfig, split_boundaries
 # Import the persistent backtester instead of the original one
 from paper_reproduction.backtesting_persistent import run_strategy_backtests_persistent
 from paper_reproduction.data import load_stock_csv
@@ -26,19 +26,22 @@ from paper_reproduction.validation import prediction_validation_frame, regime_su
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Reproduce the hybrid ensemble stock forecasting paper with PERSISTENT positions (conservative).")
+    parser = argparse.ArgumentParser(description="Evaluate the original hybrid ensemble experiment with persistent positions.")
     parser.add_argument("--data-dir", type=Path, default=PROJECT_ROOT / "data")
-    parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "outputs_persistent")
+    parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "outputs_persistent_causal")
     parser.add_argument("--tickers", nargs="+", default=["AAPL", "GS", "JPM", "XOM", "TSLA", "SPY"])
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--look-back", type=int, default=30)
     parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument("--train-fraction", type=float, default=0.8)
+    parser.add_argument("--meta-fraction-of-train", type=float, default=0.25)
     parser.add_argument("--buy-threshold", type=float, default=0.0003)
     parser.add_argument("--sell-threshold", type=float, default=-0.0003)
     parser.add_argument("--starting-cash", type=float, default=100_000.0)
     parser.add_argument("--commission", type=float, default=0.001)
     parser.add_argument("--slippage", type=float, default=0.0005)
+    parser.add_argument("--execution-mode", choices=["next_open","prior_close"], default="next_open")
     parser.add_argument(
         "--arima-refit-every",
         type=int,
@@ -50,8 +53,8 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.01,
         help=(
-            "Minimum validation RMSE improvement versus NaiveZero required before "
-            "using learned meta weights. Use 0 to disable the gate."
+            "Legacy option, unused by the active residual hybrid; nondefault values are rejected. "
+            ""
         ),
     )
     parser.add_argument(
@@ -59,48 +62,55 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help=(
-            "L2 penalty toward equal meta weights. Use values like 1, 5, or 10 "
-            "to encourage blending instead of winner-take-all weights."
+            "L2 penalty on the residual correction coefficients. Use positive values "
+            "to shrink corrections toward the ARMA anchor; zero uses least squares."
         ),
     )
     parser.add_argument(
         "--meta-max-weight",
         type=float,
         default=0.70,
-        help="Maximum learned Hybrid weight assigned to any single base model.",
+        help="Legacy option, unused by the active residual hybrid; nondefault values are rejected. ",
     )
     parser.add_argument(
         "--trading-selection-min-margin",
         type=float,
         default=0.02,
-        help="Validation final-value margin required before TradingHybrid leaves EqualBlend.",
+        help="Legacy option, unused by the active residual hybrid; nondefault values are rejected. ",
     )
     parser.add_argument(
         "--trading-selection-min-trades",
         type=int,
         default=4,
-        help="Minimum validation trades required for a strategy to be eligible.",
+        help="Legacy option, unused by the active residual hybrid; nondefault values are rejected. ",
     )
     parser.add_argument(
         "--trading-selection-min-exposure",
         type=float,
         default=5.0,
-        help="Minimum validation exposure percent required for a strategy to be eligible.",
+        help="Legacy option, unused by the active residual hybrid; nondefault values are rejected. ",
     )
     parser.add_argument(
         "--target-mode",
-        choices=["log_return", "pct_change", "price_change", "direction"],
+        choices=["log_return", "pct_change", "price_change"],
         default="log_return",
     )
     parser.add_argument(
         "--stacking-mode",
-        choices=["paper_like_in_sample"],
-        default="paper_like_in_sample",
+        choices=["chronological_holdout", "paper_like_in_sample"],
+        default="chronological_holdout",
         help=(
-            "paper_like_in_sample fits the meta-learner on the test predictions before evaluating them."
+            "Chronological base/meta/test holdout; the old mode name is a deprecated alias."
         ),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    inactive = {'meta_min_rmse_improvement':0.01,'meta_max_weight':0.70,
+                'trading_selection_min_margin':0.02,'trading_selection_min_trades':4,
+                'trading_selection_min_exposure':5.0}
+    for option, default in inactive.items():
+        if getattr(args, option) != default:
+            parser.error(f'--{option.replace("_", "-")} is a legacy option unused by the active residual hybrid. Use --meta-l2-strength for residual regularization.')
+    return args
 
 
 def write_backtest_summaries(backtests: pd.DataFrame, output_dir: Path) -> None:
@@ -111,7 +121,7 @@ def write_backtest_summaries(backtests: pd.DataFrame, output_dir: Path) -> None:
             TotalFinalValue=("Final Value", "sum"),
             AvgFinalValue=("Final Value", "mean"),
             AvgReturn=("Total Return %", "mean"),
-            AvgAlpha=("Alpha %", "mean"),
+            AvgExcessReturn=("Excess Return vs Buy Hold %", "mean"),
             AvgSharpe=("Sharpe Ratio", "mean"),
             AvgMaxDrawdown=("Max Drawdown %", "mean"),
             AvgExposure=("Exposure %", "mean"),
@@ -128,14 +138,12 @@ def write_backtest_summaries(backtests: pd.DataFrame, output_dir: Path) -> None:
 
 def main() -> None:
     import numpy as np
-    import tensorflow as tf
-
-    np.random.seed(42)
-    tf.random.set_seed(42)
-
     args = parse_args()
+    np.random.seed(args.random_state)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     config = ExperimentConfig(
+        train_fraction=args.train_fraction,
+        meta_fraction_of_train=args.meta_fraction_of_train,
         look_back=args.look_back,
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -152,6 +160,7 @@ def main() -> None:
         starting_cash=args.starting_cash,
         commission=args.commission,
         slippage=args.slippage,
+        execution_mode=args.execution_mode,
         stacking_mode=args.stacking_mode,
         target_mode=args.target_mode,
     )
@@ -178,7 +187,7 @@ def main() -> None:
         validation_df.to_csv(args.output_dir / f"validation_{ticker}.csv", index=False)
         all_validation.append(validation_df)
 
-        split_df = split_summary(df, int(len(df) * 0.6), int(len(df) * 0.8))
+        split_df = split_summary(df, *split_boundaries(len(df), config))
         split_df.to_csv(args.output_dir / f"splits_{ticker}.csv", index=False)
 
         strategy_columns = [
@@ -216,6 +225,7 @@ def main() -> None:
             starting_cash=config.starting_cash,
             commission=config.commission,
             slippage=config.slippage,
+            execution_mode=config.execution_mode,
         )
         backtest_rows.insert(0, "Ticker", ticker)
         backtest_rows.to_csv(args.output_dir / f"backtest_{ticker}.csv", index=False)
@@ -239,7 +249,7 @@ def main() -> None:
                     "Profit Loss",
                     "Total Return %",
                     "Buy Hold Return %",
-                    "Alpha %",
+                    "Excess Return vs Buy Hold %",
                     "Sharpe Ratio",
                     "Max Drawdown %",
                     "Exposure %",
