@@ -1,0 +1,50 @@
+{
+    "LinearRegression": {
+        "MAE": 0.011617,
+        "RMSE": 0.016818,
+        "MAPE": 137.3227,
+        "R2": -0.0239,
+        "DirectionalAccuracy": 0.4704,
+        "IC": -0.0673
+    },
+    "Ridge": {
+        "MAE": 0.011427,
+        "RMSE": 0.016681,
+        "MAPE": 119.2754,
+        "R2": -0.0073,
+        "DirectionalAccuracy": 0.4843,
+        "IC": -0.0123
+    },
+    "RandomForest": {
+        "MAE": 0.011719,
+        "RMSE": 0.016882,
+        "MAPE": 137.6458,
+        "R2": -0.0317,
+        "DirectionalAccuracy": 0.4906,
+        "IC": -0.0139
+    },
+    "GradientBoosting": {
+        "MAE": 0.01148,
+        "RMSE": 0.016705,
+        "MAPE": 119.1907,
+        "R2": -0.0102,
+        "DirectionalAccuracy": 0.517,
+        "IC": -0.003
+    },
+    "ResidualHybrid": {
+        "MAE": 0.011618,
+        "RMSE": 0.016793,
+        "MAPE": 130.6017,
+        "R2": -0.0208,
+        "DirectionalAccuracy": 0.4943,
+        "IC": -0.0204
+    },
+    "ConfidenceWeight": {
+        "MAE": 0.011495,
+        "RMSE": 0.016704,
+        "MAPE": 120.6819,
+        "R2": -0.01,
+        "DirectionalAccuracy": 0.4805,
+        "IC": -0.0391
+    }
+}

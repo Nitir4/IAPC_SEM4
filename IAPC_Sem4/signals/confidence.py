@@ -10,14 +10,13 @@ def compute_confidence(predictions_dict, regime, volatility):
     - Volatility level
     """
     preds = np.array(list(predictions_dict.values()))
-    
-    pred_std  = np.std(preds)
-    pred_mean = np.mean(preds)
 
-    # Base score from model agreement
-    if pred_std < 0.002:
+    pred_std  = np.std(preds)
+
+    # Loosened thresholds to allow more trades in the pipeline
+    if pred_std < 0.01:
         agreement_score = 3      # high agreement
-    elif pred_std < 0.005:
+    elif pred_std < 0.02:
         agreement_score = 2
     else:
         agreement_score = 1      # low agreement
@@ -26,7 +25,7 @@ def compute_confidence(predictions_dict, regime, volatility):
     regime_penalty = 1 if regime == 'Volatile' else 0
 
     # Volatility penalty
-    vol_penalty = 1 if (volatility is not None and volatility > 0.02) else 0
+    vol_penalty = 1 if (volatility is not None and volatility > 0.03) else 0
 
     score = agreement_score - regime_penalty - vol_penalty
 

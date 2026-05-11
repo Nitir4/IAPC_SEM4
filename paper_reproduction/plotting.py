@@ -20,9 +20,9 @@ def plot_model_comparison(ticker: str, predictions: pd.DataFrame, output_dir: Pa
     ax.plot(predictions.index, predictions["Actual"], label="Actual", linewidth=1.6)
     for column in model_columns(predictions):
         ax.plot(predictions.index, predictions[column], label=column, linewidth=1.1, alpha=0.85)
-    ax.set_title(f"{ticker} Actual vs Model Predicted Closing Price")
+    ax.set_title(f"{ticker} Actual vs Model Predicted Next-Day Log Return")
     ax.set_xlabel("Date")
-    ax.set_ylabel("Closing Price")
+    ax.set_ylabel("Log Return")
     ax.grid(True, alpha=0.25)
     ax.legend(ncol=3)
     fig.tight_layout()
@@ -62,12 +62,13 @@ def plot_metric_bars(ticker: str, predictions: pd.DataFrame, output_dir: Path) -
         rows.append({"Model": column, **regression_metrics(predictions["Actual"], predictions[column])})
     metrics = pd.DataFrame(rows).set_index("Model")
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 7))
-    for ax, metric in zip(axes.flat, ["MAE", "MAPE", "RMSE", "R2"]):
+    fig, axes = plt.subplots(2, 3, figsize=(14, 7))
+    for ax, metric in zip(axes.flat, ["MAE", "RMSE", "R2", "DirectionalAccuracy", "IC"]):
         metrics[metric].plot(kind="bar", ax=ax)
         ax.set_title(metric)
         ax.grid(True, axis="y", alpha=0.25)
         ax.tick_params(axis="x", labelrotation=25)
+    axes.flat[-1].axis("off")
 
     fig.suptitle(f"{ticker} Model Metrics", y=0.995)
     fig.tight_layout()

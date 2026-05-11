@@ -1,13 +1,18 @@
+import os
+
 # config.py
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 # --- Stock ---
-TICKER = "RELIANCE.NS"        # change to whatever stock you're testing
+TICKER = "AAPL"
+TICKERS = ["AAPL", "GS", "JPM", "XOM", "TSLA", "SPY"]
 START_DATE = "2018-01-01"
 END_DATE = "2024-01-01"
 
 # --- Paths ---
-DATA_DIR = "data/raw/"
-OUTPUT_DIR = "outputs/"
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs_sem4")
 
 # --- Preprocessing ---
 TARGET_COLUMN = "log_return"

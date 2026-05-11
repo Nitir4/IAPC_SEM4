@@ -43,11 +43,11 @@ Thumbs.db
 *.sqlite3
 
 # Project outputs and generated predictions
-outputs*
 
 # Misc
 *.egg
 *.whl
+paper_reproduction/experiments
 
 
 .codex
@@ -55,4 +55,6 @@ outputs*
 *.pdf
 
 IAPC_Sem4/__pycache__
-IAPC_Sem4/outputs*
+
+*.tex
+
