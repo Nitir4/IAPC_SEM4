@@ -1,0 +1,91 @@
+{
+  "title": "Ensemble aggregation experiment manifest",
+  "fixed_components": {
+    "dataset": "fixed",
+    "preprocessing": "fixed",
+    "feature_engineering": "fixed",
+    "train_test_split": "fixed",
+    "lookback_window": "fixed",
+    "base_models": "fixed",
+    "scaling": "fixed",
+    "metrics": "fixed",
+    "trading_thresholds": "fixed"
+  },
+  "parameters": {
+    "rmse_window": 30,
+    "rmse_min_obs": 10,
+    "rmse_eps": 1e-06,
+    "confidence_eps": 1e-06,
+    "voting_tie_break": "equal_average",
+    "regime_map": {
+      "Bullish": "LSTM",
+      "Bearish": "ARIMA",
+      "Volatile": "RandomForest",
+      "Sideways": "ARIMA"
+    },
+    "default_regime_model": "ARIMA",
+    "residual_l2_strength": null,
+    "confidence_mode": "median_distance",
+    "selective_window": 60,
+    "selective_vol_multiplier": 1.5
+  },
+  "experiments": [
+    {
+      "id": "E1",
+      "name": "Equal averaging",
+      "method": "equal_average",
+      "column": "E1_EqualAverage",
+      "description": "Uniform average of ARIMA, RandomForest, and LSTM predictions.",
+      "rationale": "Baseline ensemble that tests whether simple diversification is sufficient."
+    },
+    {
+      "id": "E2",
+      "name": "Linear stacker",
+      "method": "linear_stacker",
+      "column": "E2_LinearStacker",
+      "description": "Constrained linear meta-learner fit on the validation split, then applied to the test split.",
+      "rationale": "Learned weighting while keeping the meta-learner simple and interpretable."
+    },
+    {
+      "id": "E3",
+      "name": "Rolling RMSE weighting",
+      "method": "rolling_rmse",
+      "column": "E3_RollingRMSE",
+      "description": "Dynamic weights proportional to inverse rolling RMSE from prior observations.",
+      "rationale": "Adaptively emphasize the most reliable model without retraining base models."
+    },
+    {
+      "id": "E4",
+      "name": "Signal voting",
+      "method": "signal_voting",
+      "column": "E4_SignalVoting",
+      "description": "Majority vote on prediction direction with magnitude from agreeing models.",
+      "rationale": "Preserves directional conviction and reduces noise from outlier predictions."
+    },
+    {
+      "id": "E5",
+      "name": "Regime switching",
+      "method": "regime_switching",
+      "column": "E5_RegimeSwitch",
+      "description": "Select a base model based on the detected market regime.",
+      "rationale": "Handles nonstationarity by matching model strengths to regimes."
+    },
+    {
+      "id": "E6",
+      "name": "Residual hybrid",
+      "method": "residual_hybrid",
+      "column": "E6_ResidualHybrid",
+      "description": "ARIMA baseline plus residual correction learned from RF and LSTM deltas.",
+      "rationale": "Separates linear structure from nonlinear residuals.",
+      "notes": "Residual regression uses a fixed L2 strength shared across experiments."
+    },
+    {
+      "id": "E7",
+      "name": "Confidence weighting",
+      "method": "confidence_weight",
+      "column": "E7_ConfidenceWeight",
+      "description": "Consensus weighting by inverse distance from the median prediction.",
+      "rationale": "Down-weights outlier predictions while remaining fully data-driven."
+    }
+  ]
+}
